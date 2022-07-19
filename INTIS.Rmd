@@ -1,0 +1,438 @@
+---
+title: "INTIS (INTENT Insights)"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+<style>
+body {
+    font-size: 14px;
+}
+</style>
+
+```{r setup, include=FALSE}
+# Load the necessary packages
+pacman::p_load(tidyverse, flexdashboard, shiny, readxl, tmap, DT, leaflet)
+data("World")
+
+# Function for wrangling the Excel file
+vol_df <- function(df, year, vol) {
+  df_out <- df %>%
+    group_by(Year, Volume) %>%
+    filter(Year == year && Volume == vol)
+  df_out <- rbind(
+    cbind(df_out$Artist1, df_out$Country1),
+    cbind(df_out$Artist2, df_out$Country2),
+    cbind(df_out$Artist3, df_out$Country3),
+    cbind(df_out$Artist4, df_out$Country4),
+    cbind(df_out$Artist5, df_out$Country5),
+    cbind(df_out$Artist6, df_out$Country6),
+    cbind(df_out$Artist7, df_out$Country7)
+  ) %>%
+    na.omit() %>%
+    as.data.frame()
+  colnames(df_out) <- c("Artist", "Country")
+  return(df_out)
+}
+
+# Function for forming links
+createLink <- function(val) {
+  val1 <- gsub(" ", "+", val)
+  sprintf('<a href="https://www.google.com/search?as_epq=%s" target="_blank">%s</a>', val1, val)
+}
+
+# Function for mode
+getmode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+# Load the file
+df <- read_excel("INTIS.xlsx")
+
+# Prepare data for INTENT 2020
+v2020_1 <- vol_df(df, 2020, 1)
+v2020_2 <- vol_df(df, 2020, 2)
+v2020_3 <- vol_df(df, 2020, 3)
+v2020 <- rbind(v2020_1, v2020_2, v2020_3) %>% as.data.frame()
+v2020_artists <- unique(v2020$Artist)
+v2020_country <- table(v2020$Country) %>% as.data.frame()
+
+# Prepare data for INTENT 2021
+v2021_1 <- vol_df(df, 2021, 1)
+v2021_2 <- vol_df(df, 2021, 2)
+v2021_3 <- vol_df(df, 2021, 3)
+v2021_4 <- vol_df(df, 2021, 4)
+v2021_5 <- vol_df(df, 2021, 5)
+v2021_6 <- vol_df(df, 2021, 6)
+v2021 <- rbind(v2021_1, v2021_2, v2021_3, v2021_4, v2021_5, v2021_6) %>% as.data.frame()
+v2021_artists <- unique(v2021$Artist)
+v2021_country <- table(v2021$Country) %>% as.data.frame()
+
+# Prepare data for INTENT 2022
+v2022_1 <- vol_df(df, 2022, 1)
+v2022_2 <- vol_df(df, 2022, 2)
+v2022_3 <- vol_df(df, 2022, 3)
+v2022_4 <- vol_df(df, 2022, 4)
+v2022_5 <- vol_df(df, 2022, 5)
+v2022_6 <- vol_df(df, 2022, 6)
+v2022 <- rbind(v2022_1, v2022_2, v2022_3, v2022_4, v2022_5, v2022_6) %>% as.data.frame()
+v2022_artists <- unique(v2022$Artist)
+v2022_country <- table(v2022$Country) %>% as.data.frame()
+```
+
+# Overview
+
+## Column {data-width="650"}
+
+### Contributing Countries
+
+```{r}
+# Prepare data for overview
+v_artists <- c(v2020_artists, v2021_artists, v2022_artists) %>%
+  unique() %>%
+  sort()
+v_total <- rbind(v2020, v2021, v2022) %>% as.data.frame()
+v_country <- table(v_total$Country) %>% as.data.frame()
+colnames(v_country) <- c("name", "TotalContributions")
+
+# Prepare the map
+ContributingCountries <- inner_join(World, v_country, by = "name") %>% select(-iso_a3)
+for (i in 1:nrow(ContributingCountries)) {
+  v_t <- v_total %>%
+    filter(Country == as.character(ContributingCountries$name[i])) %>%
+    unique()
+  v_t <- paste(sort(v_t$Artist), collapse = "<br>")
+  ContributingCountries$Artists[i] <- v_t
+}
+
+# Show the map
+tmap_mode("view")
+tm_shape(ContributingCountries) + tm_polygons("TotalContributions",
+  popup.vars = c("Artists", "TotalContributions"),
+  popup.format = list("html.escape" = FALSE)
+) +
+  tm_style("white") + tm_view(set.view = c(7, 51, 4))
+```
+
+## Column {data-width="350"}
+
+### Artist Discovery
+
+```{r}
+# Show the artist list
+v_artists <- v_artists %>%
+  createLink() %>%
+  as.data.frame()
+colnames(v_artists) <- ""
+DT::datatable(v_artists,
+  rownames = FALSE, options = list(
+    pageLength = 3,
+    scrollX = FALSE,
+    dom = "tip"
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "single"
+)
+```
+
+### Descriptive Statistics
+
+```{r}
+# Show the descriptive statistics
+descStats <- rbind(
+  c("Total contributions:", nrow(v_total)),
+  c("Total artists:", nrow(v_artists)),
+  c("Total countries:", nrow(v_country)),
+  c("Top artist:", getmode(v_total$Artist)),
+  c("Top country:", getmode(v_total$Country))
+) %>% as.data.frame()
+
+# Hides header
+headerCallback <- c(
+  "function(thead, data, start, end, display){",
+  "  $('th', thead).css('display', 'none');",
+  "}"
+)
+
+DT::datatable(descStats,
+  rownames = FALSE,
+  options = list(
+    pageLength = 5,
+    scrollX = FALSE,
+    dom = "t",
+    headerCallback = JS(headerCallback)
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "none"
+)
+```
+
+# Description {.sidebar}
+
+The INTIS (INTENT Insights) dashboard provides data visualization of the distribution of contributing artists according to their countries of origin. If you click on a country's outline, you will be able to see information about artists from that country who have contributed, as well as the total number of contributions from the country. The totals for contributions, artists, countries, and modes for artists and countries (top artist/country) are provided as well. The presence of international collaborations results in a slightly higher number of contributions than the total number of tracks; for example, one track featuring two artists from different countries counts as two contributions.
+
+The data is available for the whole project as well as for the separate installments. INTIS also allows you to research the artists further; by clicking on the artist name in the Artist Discovery field, you will be able to see the results of a Google search on the artist name.
+
+# INTENT 2020 {data-navmenu="Installments"}
+
+## Column {data-width="650"}
+
+### Contributing Countries (INTENT 2020)
+
+```{r}
+# Prepare data for overview
+v_artists20 <- v2020_artists %>%
+  unique() %>%
+  sort()
+v_total20 <- rbind(v2020) %>% as.data.frame()
+v_country20 <- table(v_total20$Country) %>% as.data.frame()
+colnames(v_country20) <- c("name", "TotalContributions")
+
+# Prepare the map
+ContributingCountries20 <- inner_join(World, v_country20, by = "name") %>% select(-iso_a3)
+for (i in 1:nrow(ContributingCountries20)) {
+  v_t <- v_total20 %>%
+    filter(Country == as.character(ContributingCountries20$name[i])) %>%
+    unique()
+  v_t <- paste(sort(v_t$Artist), collapse = "<br>")
+  ContributingCountries20$Artists[i] <- v_t
+}
+
+# Show the map
+tmap_mode("view")
+tm_shape(ContributingCountries20) + tm_polygons("TotalContributions",
+  popup.vars = c("Artists", "TotalContributions"),
+  popup.format = list("html.escape" = FALSE)
+) +
+  tm_style("white") + tm_view(set.view = c(7, 51, 4))
+```
+
+## Column {data-width="350"}
+
+### Artist Discovery (INTENT 2020)
+
+```{r}
+# Show the artist list
+v_artists20 <- v_artists20 %>%
+  createLink() %>%
+  as.data.frame()
+colnames(v_artists20) <- ""
+DT::datatable(v_artists20,
+  rownames = FALSE, options = list(
+    pageLength = 3,
+    scrollX = FALSE,
+    dom = "tip"
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "single"
+)
+```
+
+### Descriptive Statistics (INTENT 2020)
+
+```{r}
+# Show the descriptive statistics
+descStats20 <- rbind(
+  c("Total contributions:", nrow(v_total20)),
+  c("Total artists:", nrow(v_artists20)),
+  c("Total countries:", nrow(v_country20)),
+  c("Top artist:", getmode(v_total20$Artist)),
+  c("Top country:", getmode(v_total20$Country))
+) %>% as.data.frame()
+
+# Hides header
+headerCallback <- c(
+  "function(thead, data, start, end, display){",
+  "  $('th', thead).css('display', 'none');",
+  "}"
+)
+
+DT::datatable(descStats20,
+  rownames = FALSE,
+  options = list(
+    pageLength = 5,
+    scrollX = FALSE,
+    dom = "t",
+    headerCallback = JS(headerCallback)
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "none"
+)
+```
+
+# INTENT 2021 {data-navmenu="Installments"}
+
+## Column {data-width="650"}
+
+### Contributing Countries (INTENT 2021)
+
+```{r}
+# Prepare data for overview
+v_artists21 <- v2021_artists %>%
+  unique() %>%
+  sort()
+v_total21 <- rbind(v2021) %>% as.data.frame()
+v_country21 <- table(v_total21$Country) %>% as.data.frame()
+colnames(v_country21) <- c("name", "TotalContributions")
+
+# Prepare the map
+ContributingCountries21 <- inner_join(World, v_country21, by = "name") %>% select(-iso_a3)
+for (i in 1:nrow(ContributingCountries21)) {
+  v_t <- v_total21 %>%
+    filter(Country == as.character(ContributingCountries21$name[i])) %>%
+    unique()
+  v_t <- paste(sort(v_t$Artist), collapse = "<br>")
+  ContributingCountries21$Artists[i] <- v_t
+}
+
+# Show the map
+tmap_mode("view")
+tm_shape(ContributingCountries21) + tm_polygons("TotalContributions",
+  popup.vars = c("Artists", "TotalContributions"),
+  popup.format = list("html.escape" = FALSE)
+) +
+  tm_style("white") + tm_view(set.view = c(7, 51, 4))
+```
+
+## Column {data-width="350"}
+
+### Artist Discovery (INTENT 2021)
+
+```{r}
+# Show the artist list
+v_artists21 <- v_artists21 %>%
+  createLink() %>%
+  as.data.frame()
+colnames(v_artists21) <- ""
+DT::datatable(v_artists21,
+  rownames = FALSE, options = list(
+    pageLength = 3,
+    scrollX = FALSE,
+    dom = "tip"
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "single"
+)
+```
+
+### Descriptive Statistics (INTENT 2021)
+
+```{r}
+# Show the descriptive statistics
+descStats21 <- rbind(
+  c("Total contributions:", nrow(v_total21)),
+  c("Total artists:", nrow(v_artists21)),
+  c("Total countries:", nrow(v_country21)),
+  c("Top artist:", getmode(v_total21$Artist)),
+  c("Top country:", getmode(v_total21$Country))
+) %>% as.data.frame()
+
+# Hides header
+headerCallback <- c(
+  "function(thead, data, start, end, display){",
+  "  $('th', thead).css('display', 'none');",
+  "}"
+)
+
+DT::datatable(descStats21,
+  rownames = FALSE,
+  options = list(
+    pageLength = 5,
+    scrollX = FALSE,
+    dom = "t",
+    headerCallback = JS(headerCallback)
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "none"
+)
+```
+
+# INTENT 2022 {data-navmenu="Installments"}
+
+## Column {data-width="650"}
+
+### Contributing Countries (INTENT 2022)
+
+```{r}
+# Prepare data for overview
+v_artists22 <- v2022_artists %>%
+  unique() %>%
+  sort()
+v_total22 <- rbind(v2022) %>% as.data.frame()
+v_country22 <- table(v_total22$Country) %>% as.data.frame()
+colnames(v_country22) <- c("name", "TotalContributions")
+
+# Prepare the map
+ContributingCountries22 <- inner_join(World, v_country22, by = "name") %>% select(-iso_a3)
+for (i in 1:nrow(ContributingCountries22)) {
+  v_t <- v_total22 %>%
+    filter(Country == as.character(ContributingCountries22$name[i])) %>%
+    unique()
+  v_t <- paste(sort(v_t$Artist), collapse = "<br>")
+  ContributingCountries22$Artists[i] <- v_t
+}
+
+# Show the map
+tmap_mode("view")
+tm_shape(ContributingCountries22) + tm_polygons("TotalContributions",
+  popup.vars = c("Artists", "TotalContributions"),
+  popup.format = list("html.escape" = FALSE)
+) +
+  tm_style("white") + tm_view(set.view = c(7, 51, 4))
+```
+
+## Column {data-width="350"}
+
+### Artist Discovery (INTENT 2022)
+
+```{r}
+# Show the artist list
+v_artists22 <- v_artists22 %>%
+  createLink() %>%
+  as.data.frame()
+colnames(v_artists22) <- ""
+DT::datatable(v_artists22,
+  rownames = FALSE, options = list(
+    pageLength = 3,
+    scrollX = FALSE,
+    dom = "tip"
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "single"
+)
+```
+
+### Descriptive Statistics (INTENT 2022)
+
+```{r}
+# Show the descriptive statistics
+descStats22 <- rbind(
+  c("Total contributions:", nrow(v_total22)),
+  c("Total artists:", nrow(v_artists22)),
+  c("Total countries:", nrow(v_country22)),
+  c("Top artist:", getmode(v_total22$Artist)),
+  c("Top country:", getmode(v_total22$Country))
+) %>% as.data.frame()
+
+# Hides header
+headerCallback <- c(
+  "function(thead, data, start, end, display){",
+  "  $('th', thead).css('display', 'none');",
+  "}"
+)
+
+DT::datatable(descStats22,
+  rownames = FALSE,
+  options = list(
+    pageLength = 5,
+    scrollX = FALSE,
+    dom = "t",
+    headerCallback = JS(headerCallback)
+  ),
+  class = "white-space: nowrap",
+  escape = FALSE, selection = "none"
+)
+```
